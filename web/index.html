@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrueDown</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #13151f;
+    --border: #2a2d3a;
+    --accent: #4f8ef7;
+    --text: #e2e6f0;
+    --text-dim: #7a7f96;
+    --green: #3ecf8e;
+    --red: #f66;
+    --yellow: #f5a623;
+    --nav-h: 56px;
+    --radius: 10px;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  /* ── Navbar ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--nav-h);
+    background: rgba(26,29,39,0.9);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 100;
+  }
+  .nav-logo { display: flex; align-items: center; gap: 10px; }
+  .nav-logo h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.3px; }
+  .nav-logo span { color: var(--accent); }
+  .nav-actions { display: flex; align-items: center; gap: 10px; }
+
+  /* ── Main layout ── */
+  .layout {
+    position: absolute;
+    inset: var(--nav-h) 0 0 0;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 16px;
+    padding: 16px;
+    overflow: hidden;
+  }
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  .card-head h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .card-head-actions { display: flex; gap: 6px; align-items: center; }
+  .card-body { padding: 16px; overflow-y: auto; flex: 1; }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 7px;
+    padding: 8px 16px; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-primary:hover { background: #3a7de8; }
+  .btn-primary:active { transform: scale(0.97); }
+
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); border-radius: 6px;
+    padding: 4px 10px; font-size: 0.72rem; cursor: pointer;
+    white-space: nowrap; transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-action {
+    background: transparent; border: none;
+    padding: 3px 6px; border-radius: 4px;
+    font-size: 0.72rem; cursor: pointer;
+    transition: background 0.1s;
+    white-space: nowrap;
+  }
+  .btn-action-requeue { color: var(--yellow); }
+  .btn-action-requeue:hover { background: rgba(245,166,35,0.12); }
+  .btn-action-delete  { color: var(--red); }
+  .btn-action-delete:hover  { background: rgba(255,102,102,0.12); }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; overflow-y: auto; flex: 1; min-height: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 520px; }
+  th {
+    position: sticky; top: 0; background: var(--surface);
+    text-align: left; padding: 8px 10px;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+    font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    z-index: 1;
+  }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .cell-trunc { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell-mono  { font-family: monospace; font-size: 0.72rem; color: var(--text-dim); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell-ops   { white-space: nowrap; width: 1px; }
+
+  .badge {
+    display: inline-block; border-radius: 4px; padding: 2px 7px;
+    font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .badge-queued      { background: #2a2d3a; color: var(--text-dim); }
+  .badge-downloading { background: #1a3a6a; color: var(--accent); }
+  .badge-done        { background: #0d3a25; color: var(--green); }
+  .badge-error       { background: #3a1a1a; color: var(--red); }
+
+  #empty { color: var(--text-dim); font-size: 0.85rem; text-align: center; padding: 40px 0; }
+
+  /* ── Settings ── */
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px; }
+  .hint { font-size: 0.68rem; color: var(--text-dim); margin-top: 3px; opacity: 0.7; }
+
+  input[type=number], input[type=text], input[type=url], textarea {
+    width: 100%; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 0.85rem;
+    padding: 7px 10px; outline: none; transition: border-color 0.15s;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; font-family: monospace; font-size: 0.76rem; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+  /* ── Modal ── */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 200; display: flex; align-items: center; justify-content: center;
+    padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.18s;
+  }
+  .overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; width: 100%; max-width: 540px; max-height: 90vh;
+    overflow-y: auto;
+    transform: translateY(16px) scale(0.98); transition: transform 0.18s;
+  }
+  .overlay.open .modal { transform: none; }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 22px 14px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .modal-head h3 { font-size: 1rem; font-weight: 600; }
+  .btn-close {
+    background: transparent; border: none; color: var(--text-dim);
+    font-size: 1.2rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    transition: color 0.1s, background 0.1s;
+  }
+  .btn-close:hover { color: var(--text); background: var(--border); }
+  .modal-body { padding: 20px 22px; }
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; min-width: 0; }
+  .modal-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px 18px; gap: 12px;
+    border-top: 1px solid var(--border);
+  }
+  #modal-msg { font-size: 0.8rem; color: var(--green); flex: 1; }
+  #modal-msg.err { color: var(--red); }
+  .btn-submit {
+    background: var(--accent); color: #fff; border: none; border-radius: 7px;
+    padding: 8px 20px; font-size: 0.85rem; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: background 0.15s, transform 0.1s;
+  }
+  .btn-submit:hover { background: #3a7de8; }
+  .btn-submit:active { transform: scale(0.97); }
+
+  details summary {
+    cursor: pointer; font-size: 0.78rem; color: var(--accent);
+    user-select: none; list-style: none;
+    display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
+  }
+  details summary::before { content: '▶'; font-size: 0.58rem; transition: transform 0.15s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  details .adv-inner { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <svg width="28" height="28" viewBox="0 0 36 36" fill="none">
+      <rect width="36" height="36" rx="9" fill="#4f8ef7"/>
+      <path d="M18 8v13M12 15l6 7 6-7M10 26h16" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>True<span>Down</span></h1>
+  </div>
+  <div class="nav-actions">
+    <button class="btn-primary" onclick="openModal()">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+        <path d="M7 1v12M1 7h12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      新建下载
+    </button>
+  </div>
+</nav>
+
+<div class="layout">
+
+  <!-- ── Task list ── -->
+  <div class="card">
+    <div class="card-head">
+      <h2>任务列表</h2>
+      <div class="card-head-actions">
+        <button class="btn-ghost" onclick="clearDone()">清理已完成</button>
+        <button class="btn-ghost" onclick="loadTasks()">↻ 刷新</button>
+      </div>
+    </div>
+    <div class="table-wrap" id="tasks-wrap">
+      <div id="tasks-container"><div id="empty">暂无任务</div></div>
+    </div>
+  </div>
+
+  <!-- ── Settings ── -->
+  <div class="card">
+    <div class="card-head"><h2>默认 aria2 参数</h2></div>
+    <div class="card-body">
+      <div class="field">
+        <label>并发连接数</label>
+        <input id="cfg-conns" type="number" min="1" max="16" placeholder="16">
+        <div class="hint">--split / --max-connection-per-server</div>
+      </div>
+      <div class="field">
+        <label>限速（字节/秒）</label>
+        <input id="cfg-speed" type="number" min="0" placeholder="0 = 不限速">
+        <div class="hint">例如 1048576 = 1 MB/s</div>
+      </div>
+      <hr class="divider">
+      <div class="field">
+        <label>最大重试次数</label>
+        <input id="cfg-tries" type="number" min="0" placeholder="5">
+        <div class="hint">--max-tries</div>
+      </div>
+      <div class="field">
+        <label>重试等待（秒）</label>
+        <input id="cfg-wait" type="number" min="0" placeholder="3">
+        <div class="hint">--retry-wait</div>
+      </div>
+      <hr class="divider">
+      <div class="field">
+        <label>额外参数（每行一个 flag）</label>
+        <textarea id="cfg-extra" rows="3" placeholder="--check-integrity=true&#10;--file-allocation=falloc"></textarea>
+        <div class="hint">新建任务时自动填入</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Modal ── -->
+<div class="overlay" id="overlay" onclick="onOverlayClick(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <h3>新建下载任务</h3>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>下载链接 *</label>
+        <input id="m-link" type="url" placeholder="https://example.com/file.zip">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>保存目录（Unix 路径）</label>
+          <input id="m-folder" placeholder="/downloads">
+        </div>
+        <div class="field">
+          <label>文件名</label>
+          <input id="m-name" placeholder="留空自动命名">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>来源页面（Referer）</label>
+          <input id="m-referer" placeholder="可选">
+        </div>
+        <div class="field">
+          <label>队列 ID</label>
+          <input id="m-queueid" type="number" placeholder="可选">
+        </div>
+      </div>
+      <div class="field">
+        <label>自定义 Headers（JSON）</label>
+        <textarea id="m-headers" rows="2" placeholder='{"Cookie": "...", "User-Agent": "Mozilla/5.0"}'></textarea>
+      </div>
+      <details>
+        <summary>覆盖 aria2 参数</summary>
+        <div class="adv-inner">
+          <div class="row">
+            <div class="field">
+              <label>并发连接数</label>
+              <input id="m-conns" type="number" min="1" max="16" placeholder="使用默认值">
+            </div>
+            <div class="field">
+              <label>限速（字节/秒）</label>
+              <input id="m-speed" type="number" min="0" placeholder="使用默认值">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>最大重试次数</label>
+              <input id="m-tries" type="number" min="0" placeholder="使用默认值">
+            </div>
+            <div class="field">
+              <label>重试等待（秒）</label>
+              <input id="m-wait" type="number" min="0" placeholder="使用默认值">
+            </div>
+          </div>
+          <div class="field">
+            <label>额外参数（每行一个 flag）</label>
+            <textarea id="m-extra" rows="2" placeholder="留空则使用默认参数面板的值"></textarea>
+          </div>
+        </div>
+      </details>
+    </div>
+    <div class="modal-foot">
+      <span id="modal-msg"></span>
+      <button class="btn-submit" onclick="submitTask()">开始下载</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Modal ──
+function openModal() {
+  document.getElementById('overlay').classList.add('open');
+  setTimeout(() => document.getElementById('m-link').focus(), 60);
+}
+function closeModal() {
+  document.getElementById('overlay').classList.remove('open');
+  const m = document.getElementById('modal-msg');
+  m.textContent = ''; m.className = '';
+}
+function onOverlayClick(e) {
+  if (e.target === document.getElementById('overlay')) closeModal();
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ── Helpers ──
+function cfgInt(id)   { return parseInt(document.getElementById(id).value) || 0; }
+function cfgLines(id) { return document.getElementById(id).value.trim().split('\n').map(s => s.trim()).filter(Boolean); }
+
+function buildOpts(p) {
+  const conns = cfgInt(p+'conns') || cfgInt('cfg-conns');
+  const speed = cfgInt(p+'speed') || cfgInt('cfg-speed');
+  const tries = cfgInt(p+'tries') || cfgInt('cfg-tries');
+  const wait  = cfgInt(p+'wait')  || cfgInt('cfg-wait');
+  const extra = cfgLines(p+'extra').length ? cfgLines(p+'extra') : cfgLines('cfg-extra');
+  return { connections: conns, maxSpeedBps: speed, maxTries: tries, retryWait: wait, extraArgs: extra };
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Submit new task ──
+async function submitTask() {
+  const link = document.getElementById('m-link').value.trim();
+  if (!link) { showModalMsg('请填写下载链接', true); return; }
+  let headers = {};
+  const hRaw = document.getElementById('m-headers').value.trim();
+  if (hRaw) { try { headers = JSON.parse(hRaw); } catch { showModalMsg('Headers JSON 格式错误', true); return; } }
+  const body = {
+    downloadSource: { link, headers, downloadPage: document.getElementById('m-referer').value.trim() || undefined },
+    folder:  document.getElementById('m-folder').value.trim()  || undefined,
+    name:    document.getElementById('m-name').value.trim()    || undefined,
+    queueId: parseInt(document.getElementById('m-queueid').value) || undefined,
+    opts: buildOpts('m-'),
+  };
+  try {
+    const res  = await fetch('/start-headless-download', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const text = await res.text();
+    if (res.ok) {
+      showModalMsg('✓ ' + text, false);
+      document.getElementById('m-link').value = '';
+      loadTasks();
+      setTimeout(closeModal, 900);
+    } else { showModalMsg('错误：' + text, true); }
+  } catch(e) { showModalMsg('请求失败：' + e.message, true); }
+}
+
+function showModalMsg(text, isErr) {
+  const el = document.getElementById('modal-msg');
+  el.textContent = text; el.className = isErr ? 'err' : '';
+}
+
+// ── Requeue a failed task ──
+async function requeueTask(id) {
+  await fetch('/tasks/requeue?id=' + id, { method: 'POST' });
+  loadTasks();
+}
+
+// ── Delete a single task record ──
+async function deleteTask(id) {
+  await fetch('/tasks/delete?id=' + id, { method: 'POST' });
+  loadTasks();
+}
+
+// ── Clear all done tasks ──
+async function clearDone() {
+  await fetch('/tasks/clear-done', { method: 'POST' });
+  loadTasks();
+}
+
+// ── Load task list ──
+async function loadTasks() {
+  try {
+    const res   = await fetch('/tasks');
+    const tasks = await res.json();
+    const cont  = document.getElementById('tasks-container');
+    if (!tasks || tasks.length === 0) {
+      cont.innerHTML = '<div id="empty">暂无任务</div>';
+      return;
+    }
+    tasks.sort((a, b) => b.id - a.id);
+    const rows = tasks.map((t, idx) => {
+      const prog = t.error ? '⚠ ' + t.error : (t.progress || '—');
+      const ops = [];
+      if (t.status === 'error')                        ops.push(`<button class="btn-action btn-action-requeue" onclick="requeueTask(${t.id})">重新排队</button>`);
+      if (t.status === 'done' || t.status === 'error') ops.push(`<button class="btn-action btn-action-delete"  onclick="deleteTask(${t.id})">删除</button>`);
+      return `<tr>
+        <td style="color:var(--text-dim);width:32px">${idx + 1}</td>
+        <td class="cell-trunc" title="${esc(t.name)}">${esc(t.name)}</td>
+        <td class="cell-trunc" title="${esc(t.link)}">${esc(t.link)}</td>
+        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+        <td class="cell-mono" title="${esc(prog)}">${esc(prog)}</td>
+        <td class="cell-ops">${ops.join(' ')}</td>
+      </tr>`;
+    }).join('');
+    cont.innerHTML = `
+      <table>
+        <thead><tr><th>#</th><th>名称</th><th>链接</th><th>状态</th><th>进度 / 日志</th><th>操作</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch(e) { console.error('loadTasks:', e); }
+}
+
+loadTasks();
+setInterval(loadTasks, 4000);
+</script>
+</body>
+</html>

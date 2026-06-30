@@ -1,0 +1,11 @@
+# Build output
+dist/
+
+# memory
+.remember/
+.claude/
+
+# Go test cache
+*.test
+*.out
+*.ps1
