@@ -1,11 +1,14 @@
 # Build output
 dist/
 
-# memory
+# AI stuff
 .remember/
 .claude/
+.agents/
 
 # Go test cache
 *.test
 *.out
 *.ps1
+
+.gitignore

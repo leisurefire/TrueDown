@@ -15,10 +15,10 @@ type downloadSourceReq struct {
 }
 
 type startReq struct {
-	DownloadSource downloadSourceReq  `json:"downloadSource"`
-	Folder         string             `json:"folder"`
-	Name           string             `json:"name"`
-	QueueID        int                `json:"queueId"`
+	DownloadSource downloadSourceReq    `json:"downloadSource"`
+	Folder         string               `json:"folder"`
+	Name           string               `json:"name"`
+	QueueID        int                  `json:"queueId"`
 	Opts           downloader.Aria2Opts `json:"opts"`
 }
 
@@ -70,8 +70,8 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
-		if !dm.RequeueTask(id) {
-			http.Error(w, "task not found or not in error state", http.StatusBadRequest)
+		if err := dm.RequeueTask(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.Write([]byte("OK"))

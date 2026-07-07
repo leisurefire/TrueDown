@@ -45,6 +45,7 @@ type Task struct {
 	Headers      map[string]string `json:"headers"`
 	DownloadPage string            `json:"downloadPage,omitempty"`
 	Opts         Aria2Opts         `json:"opts"`
+	OutputName   string            `json:"outputName,omitempty"`
 	Status       Status            `json:"status"`
 	Progress     string            `json:"progress"`
 	Error        string            `json:"error,omitempty"`
@@ -133,13 +134,24 @@ func (m *Manager) ListTasks() []*Task {
 	return out
 }
 
-// RequeueTask re-enqueues a failed task. It is a no-op if the task is not in error state.
-func (m *Manager) RequeueTask(id int64) bool {
+// RequeueTask re-enqueues a failed task. It cleans stale aria2 artifacts before retrying.
+func (m *Manager) RequeueTask(id int64) error {
 	m.mu.Lock()
 	t, ok := m.tasks[id]
-	if !ok || t.Status != StatusError {
+	if !ok {
 		m.mu.Unlock()
-		return false
+		return fmt.Errorf("task %d not found", id)
+	}
+	if t.Status != StatusError {
+		status := t.Status
+		m.mu.Unlock()
+		return fmt.Errorf("task %d is %s, not error", id, status)
+	}
+	if err := cleanupTaskArtifacts(t.Folder, t.OutputName); err != nil {
+		t.Error = fmt.Sprintf("cleanup: %v", err)
+		t.UpdatedAt = time.Now()
+		m.mu.Unlock()
+		return err
 	}
 	t.Status = StatusQueued
 	t.Error = ""
@@ -147,7 +159,7 @@ func (m *Manager) RequeueTask(id int64) bool {
 	t.UpdatedAt = time.Now()
 	m.mu.Unlock()
 	m.queue <- t
-	return true
+	return nil
 }
 
 // DeleteTask removes a done or error task from the list. Returns false if not found or still active.
@@ -230,8 +242,8 @@ func (m *Manager) run(t *Task) {
 	}
 	args = append(args, fmt.Sprintf("--retry-wait=%d", retryWait))
 
-	if t.Name != "" {
-		args = append(args, "--out="+resolveOutputName(dir, t.Name))
+	if outputName := m.ensureOutputName(t, dir); outputName != "" {
+		args = append(args, "--out="+outputName)
 	}
 
 	for k, v := range t.Headers {
@@ -279,20 +291,80 @@ func (m *Manager) setStatus(t *Task, s Status, errMsg string) {
 	m.mu.Unlock()
 }
 
+func (m *Manager) ensureOutputName(t *Task, dir string) string {
+	if t.Name == "" {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t.OutputName == "" {
+		t.OutputName = resolveOutputName(dir, t.Name)
+		t.UpdatedAt = time.Now()
+	}
+	return t.OutputName
+}
+
+func cleanupTaskArtifacts(dir, outputName string) error {
+	if outputName == "" {
+		return nil
+	}
+	outputPath, err := safeArtifactPath(dir, outputName)
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{outputPath, outputPath + ".aria2"} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %s: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
+}
+
+func safeArtifactPath(dir, name string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(filepath.Join(absDir, name))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsafe output path %q", name)
+	}
+	return absPath, nil
+}
+
 // resolveOutputName returns a filename that does not collide with any existing
 // file in dir. If "name" is free it is returned as-is; otherwise it appends
 // "(1)", "(2)", … before the extension until a free slot is found.
 func resolveOutputName(dir, name string) string {
-	if _, err := os.Stat(filepath.Join(dir, name)); os.IsNotExist(err) {
+	if outputNameAvailable(dir, name) {
 		return name
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	for i := 1; i < 10000; i++ {
 		candidate := fmt.Sprintf("%s(%d)%s", base, i, ext)
-		if _, err := os.Stat(filepath.Join(dir, candidate)); os.IsNotExist(err) {
+		if outputNameAvailable(dir, candidate) {
 			return candidate
 		}
 	}
 	return name
+}
+
+func outputNameAvailable(dir, name string) bool {
+	for _, path := range []string{
+		filepath.Join(dir, name),
+		filepath.Join(dir, name+".aria2"),
+	} {
+		if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
