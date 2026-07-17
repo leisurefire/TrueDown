@@ -2,10 +2,11 @@ const POLL_INTERVAL_MS = 4000;
 const LEGACY_THEME_KEY = "truedown-theme";
 
 const statusMeta = {
-  queued: { label: "排队中", rank: 1 },
   downloading: { label: "下载中", rank: 0 },
-  done: { label: "已完成", rank: 2 },
-  error: { label: "出错", rank: 3 },
+  queued: { label: "排队中", rank: 1 },
+  paused: { label: "已暂停", rank: 2 },
+  done: { label: "已完成", rank: 3 },
+  error: { label: "出错", rank: 4 },
 };
 
 const els = {};
@@ -140,17 +141,19 @@ async function submitTask(event) {
 
   setSubmitting(true);
   try {
-    const created = [];
-    for (const link of links) {
-      const text = await requestText("/start-headless-download", {
+    const created = await mapLimit(links, 8, (link) =>
+      requestText("/start-headless-download", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildStartBody(link, sharedBody)),
-      });
-      created.push(text);
-    }
+      }),
+    );
 
-    showModalMsg(links.length === 1 ? `已创建：${created[0]}` : `已创建 ${created.length} 个任务`);
+    const duplicateCount = created.filter((text) => text.includes("DUPLICATE")).length;
+    const summary = duplicateCount
+      ? `已接收 ${created.length} 项，其中 ${duplicateCount} 项复用原记录并检查更新`
+      : `已创建 ${created.length} 个任务`;
+    showModalMsg(links.length === 1 ? (duplicateCount ? "已复用原记录并检查更新" : `已创建：${created[0]}`) : summary);
     els.mLink.value = "";
     await loadTasks();
     window.setTimeout(closeModal, 700);
@@ -203,6 +206,12 @@ async function onTaskAction(event) {
   if (action === "requeue") {
     await requeueTask(id);
   }
+  if (action === "pause") {
+    await changePauseState(id, true);
+  }
+  if (action === "resume") {
+    await changePauseState(id, false);
+  }
   if (action === "copy-link") {
     await copyTaskLink(button.dataset.link || "");
   }
@@ -214,10 +223,20 @@ async function onTaskAction(event) {
 async function requeueTask(id) {
   try {
     await requestText(`/tasks/requeue?id=${encodeURIComponent(id)}`, { method: "POST" });
-    showToast("已重新排队，并清理该任务的残留文件。");
+    showToast("已交给 aria2 继续下载，已有进度会保留。");
     await loadTasks();
   } catch (error) {
     showToast(`重试失败：${error.message}`, "error");
+  }
+}
+
+async function changePauseState(id, pause) {
+  try {
+    await requestText(`/tasks/${pause ? "pause" : "resume"}?id=${encodeURIComponent(id)}`, { method: "POST" });
+    showToast(pause ? "任务已由 aria2 暂停。" : "任务已由 aria2 恢复。");
+    await loadTasks();
+  } catch (error) {
+    showToast(`${pause ? "暂停" : "恢复"}失败：${error.message}`, "error");
   }
 }
 
@@ -339,6 +358,12 @@ function taskRow(task, index) {
   if (status === "error") {
     actions.push(`<button class="text-button" type="button" data-action="requeue" data-id="${task.id}">重试</button>`);
   }
+  if (status === "queued" || status === "downloading") {
+    actions.push(`<button class="text-button" type="button" data-action="pause" data-id="${task.id}">暂停</button>`);
+  }
+  if (status === "paused") {
+    actions.push(`<button class="text-button" type="button" data-action="resume" data-id="${task.id}">继续</button>`);
+  }
   if (status === "done" || status === "error") {
     actions.push(`<button class="text-button text-button-danger" type="button" data-action="delete" data-id="${task.id}">删除</button>`);
   }
@@ -385,6 +410,20 @@ async function requestText(url, options) {
     throw new Error(text || response.statusText);
   }
   return text;
+}
+
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+  return results;
 }
 
 async function copyTaskLink(link) {

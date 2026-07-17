@@ -11,4 +11,14 @@ dist/
 *.out
 *.ps1
 
+# Local runtime state
+.gocache/
+.tmp-*.exe
+.tmp-*.exe~
+.tmp-*/
+*.db
+*.db-shm
+*.db-wal
+aria2.log
+
 .gitignore

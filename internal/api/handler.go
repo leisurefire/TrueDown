@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -37,7 +38,7 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			http.Error(w, "downloadSource.link is required", http.StatusBadRequest)
 			return
 		}
-		t := dm.AddTask(
+		t, duplicate, err := dm.AddTask(
 			req.DownloadSource.Link,
 			req.Name,
 			req.Folder,
@@ -46,7 +47,16 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			req.QueueID,
 			req.Opts,
 		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain")
+		if duplicate {
+			w.Header().Set("X-TrueDown-Duplicate", "true")
+			w.Write([]byte("OK " + strconv.FormatInt(t.ID, 10) + " DUPLICATE"))
+			return
+		}
 		w.Write([]byte("OK " + strconv.FormatInt(t.ID, 10)))
 	})
 
@@ -71,6 +81,40 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 			return
 		}
 		if err := dm.RequeueTask(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/tasks/pause", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := dm.PauseTask(id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Write([]byte("OK"))
+	})
+
+	mux.HandleFunc("/tasks/resume", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := taskID(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := dm.ResumeTask(id); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -105,4 +149,12 @@ func Register(mux *http.ServeMux, dm *downloader.Manager) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("OK " + strconv.Itoa(n)))
 	})
+}
+
+func taskID(r *http.Request) (int64, error) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid id")
+	}
+	return id, nil
 }
