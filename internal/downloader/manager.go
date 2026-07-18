@@ -252,7 +252,7 @@ func (m *Manager) AddTask(link, name, folder string, headers map[string]string, 
 		UpdatedAt:    now,
 	}
 	if task.Name != "" {
-		task.OutputName = resolveOutputName(task.Folder, task.Name)
+		task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
 	} else {
 		task.Name = displayName(task.Link)
 	}
@@ -538,6 +538,14 @@ func (m *Manager) submit(item submission) {
 	if err := os.MkdirAll(snapshot.Folder, 0755); err != nil {
 		m.failTask(snapshot.ID, fmt.Errorf("create download directory: %w", err))
 		return
+	}
+	if !item.recheck && snapshot.OutputName != "" {
+		var err error
+		snapshot, err = m.refreshOutputName(snapshot.ID)
+		if err != nil {
+			m.failTask(snapshot.ID, err)
+			return
+		}
 	}
 	if item.removeResult {
 		if err := m.rpc.removeResult(snapshot.GID); err != nil && !isGIDNotFound(err) {
@@ -869,24 +877,69 @@ func cloneTask(task *Task) *Task {
 	return &clone
 }
 
-func resolveOutputName(dir, name string) string {
-	if outputNameAvailable(dir, name) {
+func resolveAvailableOutputName(name string, available func(string) bool) string {
+	if available(name) {
 		return name
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	for i := 1; i < 10000; i++ {
 		candidate := fmt.Sprintf("%s(%d)%s", base, i, ext)
-		if outputNameAvailable(dir, candidate) {
+		if available(candidate) {
 			return candidate
 		}
 	}
 	return name
 }
 
+func (m *Manager) resolveOutputNameLocked(dir, name string, excludeID int64) string {
+	return resolveAvailableOutputName(name, func(candidate string) bool {
+		if !outputNameAvailable(dir, candidate) {
+			return false
+		}
+		for id, task := range m.tasks {
+			if id == excludeID || task.OutputName == "" {
+				continue
+			}
+			if samePath(task.Folder, dir) && strings.EqualFold(task.OutputName, candidate) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+func (m *Manager) refreshOutputName(id int64) (*Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.tasks[id]
+	if !ok {
+		return nil, fmt.Errorf("task %d not found", id)
+	}
+	outputPath := filepath.Join(task.Folder, task.OutputName)
+	controlPath := outputPath + ".aria2"
+	if pathExists(outputPath) && !pathExists(controlPath) {
+		task.OutputName = m.resolveOutputNameLocked(task.Folder, task.Name, task.ID)
+		task.UpdatedAt = time.Now()
+		if err := m.store.Update(task); err != nil {
+			return nil, fmt.Errorf("persist corrected output name: %w", err)
+		}
+	}
+	return cloneTask(task), nil
+}
+
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !os.IsNotExist(err)
+}
+
 func outputNameAvailable(dir, name string) bool {
 	for _, path := range []string{filepath.Join(dir, name), filepath.Join(dir, name+".aria2")} {
-		if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		if pathExists(path) {
 			return false
 		}
 	}
